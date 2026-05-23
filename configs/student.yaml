@@ -23,7 +23,7 @@ training:
   grad_clip_norm: 1.0
 
   # Optional update-based training. Leave null to train by epochs.
-  updates: 400
+  updates: null
   eval_every: 100
   smoke_epochs: 1
   smoke_updates: 20
