@@ -1,0 +1,59 @@
+seed: 1337
+
+device: auto
+torch_num_threads: 8
+
+model:
+  hidden_sizes: [1024, 512]
+  dropout: 0.1
+  hash_buckets: 4096
+
+training:
+  data_path: training_data/mcts_run.jsonl
+  output_path: checkpoints/policy_mlp.pt
+  resume_checkpoint_path:
+  epochs: 20
+  batch_size: 128
+  learning_rate: 0.0003
+  weight_decay: 0.0001
+  validation_split: 0.1
+  num_workers: 0
+  use_result_join: true
+  save_best_only: false
+  grad_clip_norm: 1.0
+
+  # Optional update-based training. Leave null to train by epochs.
+  updates:
+  eval_every: 200
+  smoke_epochs: 1
+  smoke_updates:
+  smoke_eval_every: 20
+
+collection:
+  enabled: true
+  output_path: training_data/mcts_run.jsonl
+  run_id: foul-play-mcts
+  strict: false
+  include_state: true
+
+  foul_play_dir: ../foul-play
+  websocket_uri: wss://sim3.psim.us/showdown/websocket
+  ps_username_env: PS_USERNAME
+  ps_password_env: PS_PASSWORD
+  ps_username:
+  ps_password:
+  ps_avatar:
+
+  bot_mode: search_ladder
+  user_to_challenge:
+  room_name:
+  pokemon_format: gen9randombattle
+  smogon_stats_format:
+  search_time_ms: 100
+  search_parallelism: 1
+  run_count: 1
+  team_name:
+  team_list:
+  save_replay: never
+  log_level: INFO
+  log_to_file: false

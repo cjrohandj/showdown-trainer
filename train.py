@@ -6,7 +6,7 @@ import argparse
 import json
 import random
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -41,11 +41,14 @@ class TrainConfig:
     output_path: str = "checkpoints/policy_mlp.pt"
     resume_checkpoint_path: str | None = None
     epochs: int = 20
+    updates: int | None = None
+    eval_every: int = 100
     batch_size: int = 128
     learning_rate: float = 3e-4
     weight_decay: float = 1e-4
     validation_split: float = 0.1
     seed: int = 1337
+    torch_num_threads: int | None = None
     hidden_sizes: tuple[int, ...] = (1024, 512)
     dropout: float = 0.1
     hash_buckets: int = 4096
@@ -53,6 +56,7 @@ class TrainConfig:
     use_result_join: bool = True
     save_best_only: bool = False
     device: str = "auto"
+    grad_clip_norm: float = 1.0
 
 
 if nn is not None:
@@ -138,6 +142,8 @@ class PolicyJsonlDataset(Dataset):
 
 def train(config: TrainConfig) -> dict[str, Any]:
     _require_torch()
+    if config.torch_num_threads is not None:
+        torch.set_num_threads(config.torch_num_threads)
     _seed_everything(config.seed)
 
     encoder_config = EncoderConfig(hash_buckets=config.hash_buckets)
@@ -183,60 +189,140 @@ def train(config: TrainConfig) -> dict[str, Any]:
     best_checkpoint: dict[str, Any] | None = None
     latest_checkpoint: dict[str, Any] | None = None
     start_epoch = 1
+    start_update = 1
+    checkpoint_epoch = 0
 
     if config.resume_checkpoint_path:
         checkpoint = torch.load(config.resume_checkpoint_path, map_location=device)
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         start_epoch = int(checkpoint.get("epoch", 0)) + 1
+        start_update = int(checkpoint.get("update", 0) or 0) + 1
+        checkpoint_epoch = int(checkpoint.get("epoch", 0) or 0)
         best_checkpoint = checkpoint
         latest_checkpoint = checkpoint
         best_validation_loss = float(
             checkpoint.get("validation_metrics", {}).get("loss", best_validation_loss)
         )
 
-    for epoch in range(start_epoch, start_epoch + config.epochs):
-        train_metrics = run_epoch(
-            model,
-            train_loader,
-            device=device,
-            optimizer=optimizer,
-        )
-        validation_metrics = run_epoch(
-            model,
-            validation_loader,
-            device=device,
-            optimizer=None,
-        )
+    if config.updates is not None:
+        if config.updates <= 0:
+            raise ValueError("updates must be positive when supplied")
 
-        print(
-            "epoch={epoch} "
-            "train_loss={train_loss:.4f} train_top1={train_top1:.3f} train_top3={train_top3:.3f} "
-            "val_loss={val_loss:.4f} val_top1={val_top1:.3f} val_top3={val_top3:.3f}".format(
-                epoch=epoch,
-                train_loss=train_metrics["loss"],
-                train_top1=train_metrics["top1"],
-                train_top3=train_metrics["top3"],
-                val_loss=validation_metrics["loss"],
-                val_top1=validation_metrics["top1"],
-                val_top3=validation_metrics["top3"],
+        final_update = start_update + config.updates - 1
+        eval_every = max(1, config.eval_every)
+        batch_iter = iter(train_loader)
+        running_metrics = {"loss": 0.0, "top1": 0.0, "top3": 0.0}
+        running_examples = 0
+
+        for update in range(start_update, final_update + 1):
+            try:
+                batch = next(batch_iter)
+            except StopIteration:
+                batch_iter = iter(train_loader)
+                batch = next(batch_iter)
+
+            batch_metrics, batch_size = run_train_batch(
+                model,
+                batch,
+                optimizer=optimizer,
+                device=device,
+                grad_clip_norm=config.grad_clip_norm,
             )
-        )
+            for key in running_metrics:
+                running_metrics[key] += batch_metrics[key] * batch_size
+            running_examples += batch_size
 
-        latest_checkpoint = build_checkpoint(
-            model=model,
-            optimizer=optimizer,
-            train_config=config,
-            encoder_config=encoder_config,
-            epoch=epoch,
-            train_metrics=train_metrics,
-            validation_metrics=validation_metrics,
-            input_dim=input_dim,
-        )
+            if update != final_update and update % eval_every != 0:
+                continue
 
-        if validation_metrics["loss"] <= best_validation_loss:
-            best_validation_loss = validation_metrics["loss"]
-            best_checkpoint = latest_checkpoint
+            train_metrics = _average_metrics(running_metrics, running_examples)
+            running_metrics = {"loss": 0.0, "top1": 0.0, "top3": 0.0}
+            running_examples = 0
+
+            validation_metrics = run_epoch(
+                model,
+                validation_loader,
+                device=device,
+                optimizer=None,
+            )
+
+            print(
+                "update={update} "
+                "train_loss={train_loss:.4f} train_top1={train_top1:.3f} train_top3={train_top3:.3f} "
+                "val_loss={val_loss:.4f} val_top1={val_top1:.3f} val_top3={val_top3:.3f}".format(
+                    update=update,
+                    train_loss=train_metrics["loss"],
+                    train_top1=train_metrics["top1"],
+                    train_top3=train_metrics["top3"],
+                    val_loss=validation_metrics["loss"],
+                    val_top1=validation_metrics["top1"],
+                    val_top3=validation_metrics["top3"],
+                )
+            )
+
+            latest_checkpoint = build_checkpoint(
+                model=model,
+                optimizer=optimizer,
+                train_config=config,
+                encoder_config=encoder_config,
+                epoch=checkpoint_epoch,
+                update=update,
+                train_metrics=train_metrics,
+                validation_metrics=validation_metrics,
+                input_dim=input_dim,
+            )
+
+            if validation_metrics["loss"] <= best_validation_loss:
+                best_validation_loss = validation_metrics["loss"]
+                best_checkpoint = latest_checkpoint
+    else:
+        for epoch in range(start_epoch, start_epoch + config.epochs):
+            train_metrics = run_epoch(
+                model,
+                train_loader,
+                device=device,
+                optimizer=optimizer,
+                grad_clip_norm=config.grad_clip_norm,
+            )
+            validation_metrics = run_epoch(
+                model,
+                validation_loader,
+                device=device,
+                optimizer=None,
+            )
+
+            print(
+                "epoch={epoch} "
+                "train_loss={train_loss:.4f} train_top1={train_top1:.3f} train_top3={train_top3:.3f} "
+                "val_loss={val_loss:.4f} val_top1={val_top1:.3f} val_top3={val_top3:.3f}".format(
+                    epoch=epoch,
+                    train_loss=train_metrics["loss"],
+                    train_top1=train_metrics["top1"],
+                    train_top3=train_metrics["top3"],
+                    val_loss=validation_metrics["loss"],
+                    val_top1=validation_metrics["top1"],
+                    val_top3=validation_metrics["top3"],
+                )
+            )
+
+            latest_checkpoint = build_checkpoint(
+                model=model,
+                optimizer=optimizer,
+                train_config=config,
+                encoder_config=encoder_config,
+                epoch=epoch,
+                update=int(latest_checkpoint.get("update", 0) or 0)
+                if latest_checkpoint
+                else 0,
+                train_metrics=train_metrics,
+                validation_metrics=validation_metrics,
+                input_dim=input_dim,
+            )
+
+            if validation_metrics["loss"] <= best_validation_loss:
+                best_validation_loss = validation_metrics["loss"]
+                best_checkpoint = latest_checkpoint
 
     checkpoint_to_save = best_checkpoint if config.save_best_only else latest_checkpoint
     if checkpoint_to_save is None:
@@ -254,9 +340,37 @@ def train(config: TrainConfig) -> dict[str, Any]:
         "validation_examples": len(validation_dataset),
         "best_validation_loss": best_validation_loss,
         "saved_epoch": checkpoint_to_save["epoch"],
+        "saved_update": checkpoint_to_save.get("update"),
         "saved_checkpoint_kind": "best" if config.save_best_only else "latest",
         "feature_size": input_dim,
     }
+
+
+def run_train_batch(
+    model: PolicyMLP,
+    batch: Mapping[str, torch.Tensor | list[str]],
+    *,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+    grad_clip_norm: float = 1.0,
+) -> tuple[dict[str, float], int]:
+    model.train(True)
+    features = batch["features"].to(device)
+    target = batch["target"].to(device)
+    action_mask = batch["action_mask"].to(device)
+
+    logits = model(features)
+    loss = masked_soft_cross_entropy(logits, target, action_mask)
+
+    optimizer.zero_grad(set_to_none=True)
+    loss.backward()
+    if grad_clip_norm and grad_clip_norm > 0:
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip_norm)
+    optimizer.step()
+
+    metrics = policy_metrics(logits, target, action_mask)
+    metrics["loss"] = float(loss.item())
+    return metrics, features.shape[0]
 
 
 def run_epoch(
@@ -265,6 +379,7 @@ def run_epoch(
     *,
     device: torch.device,
     optimizer: torch.optim.Optimizer | None,
+    grad_clip_norm: float = 1.0,
 ) -> dict[str, float]:
     is_training = optimizer is not None
     model.train(is_training)
@@ -287,7 +402,10 @@ def run_epoch(
             if is_training:
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                if grad_clip_norm and grad_clip_norm > 0:
+                    torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), max_norm=grad_clip_norm
+                    )
                 optimizer.step()
 
             batch_size = features.shape[0]
@@ -348,10 +466,12 @@ def build_checkpoint(
     train_metrics: dict[str, float],
     validation_metrics: dict[str, float],
     input_dim: int,
+    update: int | None = None,
 ) -> dict[str, Any]:
     return {
         "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
         "epoch": epoch,
+        "update": update,
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "model": {
@@ -415,20 +535,26 @@ def predict_policy(
 
 def parse_args() -> TrainConfig:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("data_path", help="Path to JSONL dataset from dataset.py")
-    parser.add_argument("--output-path", default=TrainConfig.output_path)
+    parser.add_argument("data_path", nargs="?", help="Path to JSONL dataset from dataset.py")
+    parser.add_argument("--config", help="YAML config path, e.g. configs/student.yaml")
+    parser.add_argument("--smoke", action="store_true", help="Use smoke training settings from config")
+    parser.add_argument("--output-path", default=None)
     parser.add_argument("--resume-checkpoint-path", default=None)
-    parser.add_argument("--epochs", type=int, default=TrainConfig.epochs)
-    parser.add_argument("--batch-size", type=int, default=TrainConfig.batch_size)
-    parser.add_argument("--learning-rate", type=float, default=TrainConfig.learning_rate)
-    parser.add_argument("--weight-decay", type=float, default=TrainConfig.weight_decay)
-    parser.add_argument("--validation-split", type=float, default=TrainConfig.validation_split)
-    parser.add_argument("--seed", type=int, default=TrainConfig.seed)
-    parser.add_argument("--hidden-sizes", default="1024,512")
-    parser.add_argument("--dropout", type=float, default=TrainConfig.dropout)
-    parser.add_argument("--hash-buckets", type=int, default=TrainConfig.hash_buckets)
-    parser.add_argument("--num-workers", type=int, default=TrainConfig.num_workers)
-    parser.add_argument("--device", default=TrainConfig.device)
+    parser.add_argument("--epochs", type=int, default=None)
+    parser.add_argument("--updates", type=int, default=None)
+    parser.add_argument("--eval-every", type=int, default=None)
+    parser.add_argument("--batch-size", type=int, default=None)
+    parser.add_argument("--learning-rate", type=float, default=None)
+    parser.add_argument("--weight-decay", type=float, default=None)
+    parser.add_argument("--validation-split", type=float, default=None)
+    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--torch-num-threads", type=int, default=None)
+    parser.add_argument("--hidden-sizes", default=None)
+    parser.add_argument("--dropout", type=float, default=None)
+    parser.add_argument("--hash-buckets", type=int, default=None)
+    parser.add_argument("--num-workers", type=int, default=None)
+    parser.add_argument("--device", default=None)
+    parser.add_argument("--grad-clip-norm", type=float, default=None)
     parser.add_argument(
         "--save-best-only",
         action="store_true",
@@ -441,30 +567,103 @@ def parse_args() -> TrainConfig:
     )
     args = parser.parse_args()
 
+    if args.config:
+        from trainer_config import train_config_from_yaml
+
+        config = train_config_from_yaml(
+            args.config,
+            data_path=args.data_path,
+            output_path=args.output_path,
+            resume_checkpoint_path=args.resume_checkpoint_path,
+            smoke=args.smoke,
+        )
+        return _apply_cli_overrides(config, args)
+
+    if args.data_path is None:
+        parser.error("data_path is required unless --config supplies training.data_path")
+
     hidden_sizes = tuple(
         int(value.strip())
-        for value in args.hidden_sizes.split(",")
+        for value in (args.hidden_sizes or "1024,512").split(",")
         if value.strip()
     )
 
     return TrainConfig(
         data_path=args.data_path,
-        output_path=args.output_path,
+        output_path=args.output_path or TrainConfig.output_path,
         resume_checkpoint_path=args.resume_checkpoint_path,
-        epochs=args.epochs,
-        batch_size=args.batch_size,
-        learning_rate=args.learning_rate,
-        weight_decay=args.weight_decay,
-        validation_split=args.validation_split,
-        seed=args.seed,
+        epochs=args.epochs if args.epochs is not None else TrainConfig.epochs,
+        updates=args.updates,
+        eval_every=args.eval_every if args.eval_every is not None else TrainConfig.eval_every,
+        batch_size=args.batch_size if args.batch_size is not None else TrainConfig.batch_size,
+        learning_rate=(
+            args.learning_rate
+            if args.learning_rate is not None
+            else TrainConfig.learning_rate
+        ),
+        weight_decay=(
+            args.weight_decay if args.weight_decay is not None else TrainConfig.weight_decay
+        ),
+        validation_split=(
+            args.validation_split
+            if args.validation_split is not None
+            else TrainConfig.validation_split
+        ),
+        seed=args.seed if args.seed is not None else TrainConfig.seed,
+        torch_num_threads=args.torch_num_threads,
         hidden_sizes=hidden_sizes,
-        dropout=args.dropout,
-        hash_buckets=args.hash_buckets,
-        num_workers=args.num_workers,
+        dropout=args.dropout if args.dropout is not None else TrainConfig.dropout,
+        hash_buckets=(
+            args.hash_buckets if args.hash_buckets is not None else TrainConfig.hash_buckets
+        ),
+        num_workers=(
+            args.num_workers if args.num_workers is not None else TrainConfig.num_workers
+        ),
         use_result_join=not args.no_result_join,
         save_best_only=args.save_best_only,
-        device=args.device,
+        device=args.device or TrainConfig.device,
+        grad_clip_norm=(
+            args.grad_clip_norm
+            if args.grad_clip_norm is not None
+            else TrainConfig.grad_clip_norm
+        ),
     )
+
+
+def _apply_cli_overrides(config: TrainConfig, args: argparse.Namespace) -> TrainConfig:
+    overrides: dict[str, Any] = {}
+    for arg_name, field_name in (
+        ("epochs", "epochs"),
+        ("updates", "updates"),
+        ("eval_every", "eval_every"),
+        ("batch_size", "batch_size"),
+        ("learning_rate", "learning_rate"),
+        ("weight_decay", "weight_decay"),
+        ("validation_split", "validation_split"),
+        ("seed", "seed"),
+        ("torch_num_threads", "torch_num_threads"),
+        ("dropout", "dropout"),
+        ("hash_buckets", "hash_buckets"),
+        ("num_workers", "num_workers"),
+        ("device", "device"),
+        ("grad_clip_norm", "grad_clip_norm"),
+    ):
+        value = getattr(args, arg_name)
+        if value is not None:
+            overrides[field_name] = value
+
+    if args.hidden_sizes:
+        overrides["hidden_sizes"] = tuple(
+            int(value.strip())
+            for value in args.hidden_sizes.split(",")
+            if value.strip()
+        )
+    if args.no_result_join:
+        overrides["use_result_join"] = False
+    if args.save_best_only:
+        overrides["save_best_only"] = True
+
+    return replace(config, **overrides)
 
 
 def main() -> None:
@@ -487,6 +686,12 @@ def _normalize_target(target: list[float]) -> list[float]:
     if total > 0:
         return [value / total for value in values]
     return values
+
+
+def _average_metrics(metrics: Mapping[str, float], examples: int) -> dict[str, float]:
+    if examples <= 0:
+        return {"loss": 0.0, "top1": 0.0, "top3": 0.0}
+    return {key: float(value) / examples for key, value in metrics.items()}
 
 
 def _safe_action_mask(action_mask: torch.Tensor) -> torch.Tensor:
