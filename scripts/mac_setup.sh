@@ -78,6 +78,22 @@ install_python() {
   )
 }
 
+install_python_certificates() {
+  local python_prefix
+  local cert_command
+  python_prefix="$("${SELECTED_PYTHON}" - <<'PY'
+import sys
+
+print(sys.prefix)
+PY
+)"
+  cert_command="${python_prefix}/Install Certificates.command"
+  if [[ -f "${cert_command}" ]]; then
+    echo "==> Installing Python SSL certificates"
+    /bin/sh "${cert_command}"
+  fi
+}
+
 echo "==> Checking Python"
 SELECTED_PYTHON="$(find_compatible_python || true)"
 
@@ -96,6 +112,8 @@ import sys
 
 print(f"Using Python {sys.version.split()[0]} at {sys.executable}")
 PY
+
+install_python_certificates
 
 if [[ -x "${VENV_DIR}/bin/python" ]]; then
   if ! "${VENV_DIR}/bin/python" - <<'PY' >/dev/null 2>&1
@@ -119,13 +137,23 @@ echo "==> Installing collector dependencies"
 echo "==> Downloading Showdex/pkmn random battle data"
 mkdir -p showdex_cache
 "${VENV_DIR}/bin/python" - <<'PY'
+import ssl
 from pathlib import Path
-from urllib.request import urlretrieve
+from urllib.request import urlopen
 
 FILES = {
     Path("showdex_cache/gen9randombattle.json"): "https://pkmn.github.io/randbats/data/gen9randombattle.json",
     Path("showdex_cache/gen9randombattle-stats.json"): "https://pkmn.github.io/randbats/data/stats/gen9randombattle-stats.json",
 }
+
+
+def ssl_context():
+    try:
+        import certifi
+    except ImportError:
+        return ssl.create_default_context()
+    return ssl.create_default_context(cafile=certifi.where())
+
 
 for path, url in FILES.items():
     if path.exists() and path.stat().st_size > 0:
@@ -133,7 +161,8 @@ for path, url in FILES.items():
         continue
     print(f"Downloading {url}")
     tmp_path = path.with_suffix(path.suffix + ".tmp")
-    urlretrieve(url, tmp_path)
+    with urlopen(url, context=ssl_context()) as response:
+        tmp_path.write_bytes(response.read())
     tmp_path.replace(path)
 PY
 
