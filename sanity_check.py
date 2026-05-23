@@ -17,6 +17,7 @@ from map import (
     mcts_policy_to_vector,
 )
 from serialize import battle_state_json, serialize_battle_state
+from collect_offline_mcts import run_collection as run_offline_collection
 
 
 def build_fake_battle():
@@ -282,6 +283,34 @@ def check_dataset_component(state):
     print("dataset: ok")
 
 
+def check_offline_mcts_component():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        path = Path(temp_dir) / "offline.jsonl"
+        summary = run_offline_collection(
+            {
+                "output_path": str(path),
+                "run_id": "offline-sanity",
+                "use_fixture": True,
+                "backend": "toy",
+                "allow_toy_backend": True,
+                "positions": 3,
+                "hypotheses": 2,
+                "search_time_ms": 1,
+                "pokemon_format": "gen9randombattle",
+                "generation": "gen9",
+                "include_state": True,
+            }
+        )
+        assert summary["examples_written"] == 3
+        rows = list(attach_results(path))
+        assert len(rows) == 3
+        assert rows[0]["metadata"]["source"] == "showdex-poke-engine-mcts"
+        assert rows[0]["state"]["opponent"]["active"]["move_distribution"]
+        assert math.isclose(sum(rows[0]["mcts_target"]), 1.0, rel_tol=1e-8)
+
+    print("offline-mcts: ok")
+
+
 def check_train_component(state):
     import train
 
@@ -365,6 +394,7 @@ def main():
     state = check_serialize_component(battle)
     check_encode_component(state)
     check_dataset_component(state)
+    check_offline_mcts_component()
     check_train_component(state)
     print("full MCTS -> MLP pipeline: ok")
 

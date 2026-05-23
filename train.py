@@ -1,4 +1,4 @@
-"""Train a small policy MLP to imitate Foul Play MCTS distributions."""
+"""Train a small policy MLP to imitate offline MCTS distributions."""
 
 from __future__ import annotations
 

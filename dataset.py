@@ -62,7 +62,7 @@ def build_decision_record(
 ) -> DecisionRecord:
     """Build a JSON-ready decision training record.
 
-    Pass either a live Foul Play ``battle`` or an already serialized ``state``.
+    Pass either a live battle-like object or an already serialized ``state``.
     Pass either ``search_result`` with ``chosen_action``/``mcts_policy`` fields,
     or pass those two values explicitly.
     """

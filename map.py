@@ -1,4 +1,4 @@
-"""Map Foul Play / poke-engine MCTS actions into fixed MLP slots.
+"""Map Showdown / poke-engine MCTS actions into fixed MLP slots.
 
 The MLP should predict small positional action IDs, not global move names.
 For the first trainer, use this 13-slot action space:
@@ -149,7 +149,7 @@ def action_slot_to_decision(
     *,
     layout: SlotLayout = DEFAULT_LAYOUT,
 ) -> str:
-    """Convert a predicted action slot back into a Foul Play decision string."""
+    """Convert a predicted action slot back into an engine decision string."""
 
     if slot < 0 or slot >= layout.size:
         raise ActionMappingError(f"slot out of range: {slot}")
@@ -285,4 +285,3 @@ def mcts_results_to_target_vector(
         layout=layout,
         strict=strict,
     )
-

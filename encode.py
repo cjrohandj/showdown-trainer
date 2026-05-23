@@ -255,6 +255,15 @@ def _encode_pokemon_slot(prefix, pokemon, add_scalar, add_bool, add_token) -> No
         f"{prefix}.zoroark_disguised_as={_text(pokemon.get('zoroark_disguised_as'))}"
     )
 
+    for value, weight in _distribution_items(pokemon.get("ability_distribution")):
+        add_token(f"{prefix}.ability_dist={_text(value)}", weight)
+    for value, weight in _distribution_items(pokemon.get("item_distribution")):
+        add_token(f"{prefix}.item_dist={_text(value)}", weight)
+    for value, weight in _distribution_items(pokemon.get("move_distribution")):
+        add_token(f"{prefix}.move_dist={_text(value)}", weight)
+    for value, weight in _distribution_items(pokemon.get("tera_type_distribution")):
+        add_token(f"{prefix}.tera_dist={_text(value)}", weight)
+
     for pokemon_type in _sequence(pokemon.get("types"), 2):
         add_token(f"{prefix}.type={_text(pokemon_type)}")
 
@@ -386,6 +395,31 @@ def _text(value: object) -> str:
     return "".join(
         ch for ch in str(value).strip().lower() if ch.isalnum() or ch in "-_"
     )
+
+
+def _distribution_items(value: object) -> list[tuple[str, float]]:
+    if isinstance(value, Mapping):
+        raw_items = value.items()
+    elif isinstance(value, list | tuple):
+        raw_items = value
+    else:
+        return []
+
+    items: list[tuple[str, float]] = []
+    for item in raw_items:
+        if isinstance(item, list | tuple):
+            if not item:
+                continue
+            key = item[0]
+            weight = item[1] if len(item) > 1 else 1.0
+        else:
+            key = item
+            weight = 1.0
+        key = _text(key)
+        parsed_weight = _float(weight)
+        if key and parsed_weight is not None and parsed_weight > 0:
+            items.append((key, parsed_weight))
+    return items
 
 
 def _float(value: object) -> float | None:
