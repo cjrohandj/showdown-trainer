@@ -107,7 +107,6 @@ async def run_collection(settings: dict[str, Any]) -> None:
                 await ps_websocket_client.update_team(team_packed)
             else:
                 team_dict = None
-                await ps_websocket_client.update_team("None")
 
             await _start_battle(FoulPlayConfig, ps_websocket_client)
             current_battle_ids.clear()
