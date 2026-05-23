@@ -38,7 +38,7 @@ collection:
   pokemon_format: gen9randombattle
   generation: gen9
   seed: 1337
-  positions: 64
+  positions: 5000
   search_time_ms: 75
   threads: 1
   hypotheses: 4

@@ -1,0 +1,2 @@
+PyYAML>=6.0
+poke-engine>=0.0.46

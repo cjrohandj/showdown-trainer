@@ -66,7 +66,7 @@ For a fully air-gapped run:
 
 `configs/student.yaml` is tuned to keep first Colab runs short:
 
-- `positions: 64`
+- `positions: 5000`
 - `hypotheses: 4`
 - `search_time_ms: 75`
 - `training.updates: 400`
