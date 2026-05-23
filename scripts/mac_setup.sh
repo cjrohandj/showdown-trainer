@@ -137,14 +137,33 @@ echo "==> Installing collector dependencies"
 echo "==> Downloading Showdex/pkmn random battle data"
 mkdir -p showdex_cache
 "${VENV_DIR}/bin/python" - <<'PY'
+from http.client import HTTPException
 import ssl
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
-FILES = {
-    Path("showdex_cache/gen9randombattle.json"): "https://pkmn.github.io/randbats/data/gen9randombattle.json",
-    Path("showdex_cache/gen9randombattle-stats.json"): "https://pkmn.github.io/randbats/data/stats/gen9randombattle-stats.json",
-}
+POKEMON_FORMAT = "gen9randombattle"
+FILES = [
+    {
+        "path": Path(f"showdex_cache/{POKEMON_FORMAT}.json"),
+        "required": True,
+        "urls": [
+            f"https://data.pkmn.cc/randbats/{POKEMON_FORMAT}.json",
+            f"https://pkmn.github.io/randbats/data/{POKEMON_FORMAT}.json",
+            f"https://play.pokemonshowdown.com/data/random/{POKEMON_FORMAT}.json",
+        ],
+    },
+    {
+        "path": Path(f"showdex_cache/{POKEMON_FORMAT}-stats.json"),
+        "required": False,
+        "urls": [
+            f"https://data.pkmn.cc/randbats/stats/{POKEMON_FORMAT}.json",
+            f"https://pkmn.github.io/randbats/data/stats/{POKEMON_FORMAT}.json",
+            f"https://pkmn.github.io/randbats/data/stats/{POKEMON_FORMAT}-stats.json",
+        ],
+    },
+]
 
 
 def ssl_context():
@@ -155,15 +174,35 @@ def ssl_context():
     return ssl.create_default_context(cafile=certifi.where())
 
 
-for path, url in FILES.items():
+def download_first_available(path, urls, *, required):
+    errors = []
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    for url in urls:
+        print(f"Downloading {url}")
+        try:
+            with urlopen(url, context=ssl_context()) as response:
+                tmp_path.write_bytes(response.read())
+            tmp_path.replace(path)
+            return
+        except (HTTPError, URLError, TimeoutError, HTTPException, OSError) as exc:
+            errors.append(f"{url}: {exc}")
+            if tmp_path.exists():
+                tmp_path.unlink()
+    if required:
+        raise RuntimeError("Could not download required Showdex/pkmn data:\n" + "\n".join(errors))
+    print("Optional Showdex/pkmn stats data was unavailable; continuing with preset data.")
+
+
+for file_info in FILES:
+    path = file_info["path"]
     if path.exists() and path.stat().st_size > 0:
         print(f"Already have {path}")
         continue
-    print(f"Downloading {url}")
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    with urlopen(url, context=ssl_context()) as response:
-        tmp_path.write_bytes(response.read())
-    tmp_path.replace(path)
+    download_first_available(
+        path,
+        file_info["urls"],
+        required=bool(file_info["required"]),
+    )
 PY
 
 echo "==> Verifying poke-engine collector with a tiny smoke run"
