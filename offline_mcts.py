@@ -92,7 +92,9 @@ class PokeEngineBackend:
     def _side(self, side: Mapping[str, Any]) -> Any:
         active = _mapping(side.get("active"))
         reserve = [_mapping(pokemon) for pokemon in _sequence(side.get("reserve"), 5)]
-        pokemon = [self._pokemon(active)] + [self._pokemon(slot) for slot in reserve if slot]
+        pokemon = [
+            self._pokemon(active, can_terastallize=bool(active.get("can_terastallize", True)))
+        ] + [self._pokemon(slot, can_terastallize=False) for slot in reserve if slot]
         return self.Side(
             pokemon=pokemon,
             active_index="0",
@@ -105,7 +107,7 @@ class PokeEngineBackend:
             last_used_move=_last_used_move(side.get("last_used_move")),
         )
 
-    def _pokemon(self, pokemon: Mapping[str, Any]) -> Any:
+    def _pokemon(self, pokemon: Mapping[str, Any], *, can_terastallize: bool = False) -> Any:
         moves = [
             self.Move(
                 id=normalize_id(move.get("name") or move.get("id")),
@@ -117,30 +119,38 @@ class PokeEngineBackend:
         ]
         stats = _mapping(pokemon.get("stats"))
         types = _types(pokemon)
-        return self.Pokemon(
-            id=normalize_id(pokemon.get("name") or pokemon.get("species") or "pikachu"),
-            level=int(pokemon.get("level") or 100),
-            types=types,
-            base_types=types,
-            hp=int(pokemon.get("hp") or pokemon.get("max_hp") or 100),
-            maxhp=int(pokemon.get("max_hp") or pokemon.get("hp") or 100),
-            ability=normalize_id(pokemon.get("ability")) or "none",
-            item=normalize_id(pokemon.get("item")) or "none",
-            nature=normalize_id(pokemon.get("nature")) or "serious",
-            evs=_ev_tuple(_mapping(pokemon.get("evs"))),
-            attack=int(stats.get("attack") or 100),
-            defense=int(stats.get("defense") or 100),
-            special_attack=int(stats.get("special-attack") or 100),
-            special_defense=int(stats.get("special-defense") or 100),
-            speed=int(stats.get("speed") or 100),
-            status=_status(pokemon.get("status")),
-            rest_turns=int(pokemon.get("rest_turns") or 0),
-            sleep_turns=int(pokemon.get("sleep_turns") or 0),
-            weight_kg=float(pokemon.get("weight_kg") or 0.0),
-            moves=moves,
-            terastallized=bool(pokemon.get("terastallized")),
-            tera_type=normalize_id(pokemon.get("tera_type")) or "typeless",
-        )
+        kwargs = {
+            "id": normalize_id(pokemon.get("name") or pokemon.get("species") or "pikachu"),
+            "level": int(pokemon.get("level") or 100),
+            "types": types,
+            "base_types": types,
+            "hp": _int_or_default(pokemon.get("hp"), _int_or_default(pokemon.get("max_hp"), 100)),
+            "maxhp": _int_or_default(pokemon.get("max_hp"), _int_or_default(pokemon.get("hp"), 100)),
+            "ability": normalize_id(pokemon.get("ability")) or "none",
+            "item": normalize_id(pokemon.get("item")) or "none",
+            "nature": normalize_id(pokemon.get("nature")) or "serious",
+            "evs": _ev_tuple(_mapping(pokemon.get("evs"))),
+            "attack": int(stats.get("attack") or 100),
+            "defense": int(stats.get("defense") or 100),
+            "special_attack": int(stats.get("special-attack") or 100),
+            "special_defense": int(stats.get("special-defense") or 100),
+            "speed": int(stats.get("speed") or 100),
+            "status": _status(pokemon.get("status")),
+            "rest_turns": int(pokemon.get("rest_turns") or 0),
+            "sleep_turns": int(pokemon.get("sleep_turns") or 0),
+            "weight_kg": float(pokemon.get("weight_kg") or 0.0),
+            "moves": moves,
+            "terastallized": bool(pokemon.get("terastallized")),
+            "tera_type": normalize_id(pokemon.get("tera_type")) or "typeless",
+            "can_terastallize": bool(pokemon.get("can_terastallize", can_terastallize)),
+        }
+        try:
+            return self.Pokemon(**kwargs)
+        except TypeError as exc:
+            if "can_terastallize" not in str(exc):
+                raise
+            kwargs.pop("can_terastallize", None)
+            return self.Pokemon(**kwargs)
 
     def _side_conditions(self, conditions: Mapping[str, Any]) -> Any:
         return self.SideConditions(
@@ -288,8 +298,8 @@ def _serialize_side(
     return {
         "name": name,
         "account_name": name,
-        "active": _serialize_pokemon(active, observed=observed),
-        "reserve": [_serialize_pokemon(slot, observed=observed) for slot in reserve],
+        "active": _serialize_pokemon(active, observed=observed, can_terastallize=True),
+        "reserve": [_serialize_pokemon(slot, observed=observed, can_terastallize=False) for slot in reserve],
         "fainted_count": 0,
         "trapped": False,
         "baton_passing": False,
@@ -303,7 +313,12 @@ def _serialize_side(
     }
 
 
-def _serialize_pokemon(pokemon: SampledPokemon, *, observed: bool) -> dict[str, Any]:
+def _serialize_pokemon(
+    pokemon: SampledPokemon,
+    *,
+    observed: bool,
+    can_terastallize: bool,
+) -> dict[str, Any]:
     max_hp = _rough_hp(pokemon)
     stats = _rough_stats(pokemon)
     data = {
@@ -352,7 +367,7 @@ def _serialize_pokemon(pokemon: SampledPokemon, *, observed: bool) -> dict[str, 
         "substitute_hit": False,
         "terastallized": False,
         "tera_type": normalize_id(pokemon.tera_type) or "typeless",
-        "can_terastallize": False,
+        "can_terastallize": bool(can_terastallize),
         "can_mega_evo": False,
         "can_ultra_burst": False,
         "can_dynamax": False,
@@ -426,6 +441,13 @@ def _status(value: object) -> str:
         "slp": "sleep",
         "tox": "toxic",
     }.get(normalized, normalized)
+
+
+def _int_or_default(value: object, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(default)
 
 
 def _ev_tuple(evs: Mapping[str, Any]) -> tuple[int, int, int, int, int, int]:

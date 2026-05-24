@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 .DS_Store
 .venv-collector/
+node_modules/
 checkpoints/
 showdex_cache/
 training_data/

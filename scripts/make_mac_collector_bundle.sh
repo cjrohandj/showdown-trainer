@@ -29,6 +29,7 @@ cp configs/student.yaml "${BUILD_DIR}/configs/student.yaml"
 cp docs/mac_data_collection.md "${BUILD_DIR}/docs/mac_data_collection.md"
 cp scripts/mac_setup.sh "${BUILD_DIR}/scripts/mac_setup.sh"
 cp scripts/collect_mac_shard.sh "${BUILD_DIR}/scripts/collect_mac_shard.sh"
+cp scripts/summarize_shard.py "${BUILD_DIR}/scripts/summarize_shard.py"
 cp scripts/export_showdown_dex.js "${BUILD_DIR}/scripts/export_showdown_dex.js"
 cp scripts/showdown_bridge.js "${BUILD_DIR}/scripts/showdown_bridge.js"
 

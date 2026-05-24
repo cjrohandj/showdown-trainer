@@ -22,6 +22,7 @@ ACTION_SLOTS = MOVE_SLOTS + SWITCH_SLOTS + TERA_MOVE_SLOTS
 SWITCH_PREFIX = "switch "
 TERA_SUFFIX = "-tera"
 MEGA_SUFFIX = "-mega"
+STRUGGLE = "struggle"
 
 
 class ActionMappingError(ValueError):
@@ -134,6 +135,10 @@ def decision_to_action_slot(
         )
 
     move_key = normalize_name(base_decision)
+    if move_key == STRUGGLE:
+        if active_moves(battle):
+            return layout.move_start
+        raise ActionMappingError("struggle requested with no active moves")
     for index, move in enumerate(active_moves(battle)):
         if index >= MOVE_SLOTS:
             break
@@ -186,6 +191,17 @@ def legal_action_mask(
     mask = [0] * layout.size
     user = _user(battle)
     active = _field(user, "active")
+    reserve = reserve_pokemon(battle)[:SWITCH_SLOTS]
+
+    reviving_slots = [
+        index
+        for index, pokemon in enumerate(reserve)
+        if bool(_field(pokemon, "reviving", False))
+    ]
+    if reviving_slots:
+        for index in reviving_slots:
+            mask[layout.switch_start + index] = 1
+        return mask
 
     if active is not None:
         for index, move in enumerate(active_moves(battle)[:MOVE_SLOTS]):
@@ -200,11 +216,15 @@ def legal_action_mask(
                 if mask[layout.move_start + index]:
                     mask[layout.tera_start + index] = 1
 
-    for index, pokemon in enumerate(reserve_pokemon(battle)[:SWITCH_SLOTS]):
+    for index, pokemon in enumerate(reserve):
         hp = _field(pokemon, "hp", 1)
         fainted = callable(getattr(pokemon, "is_alive", None)) and not pokemon.is_alive()
         if hp != 0 and not fainted:
             mask[layout.switch_start + index] = 1
+
+    if not any(mask) and active_moves(battle):
+        # Represent a forced Struggle turn with the first move slot.
+        mask[layout.move_start] = 1
 
     return mask
 

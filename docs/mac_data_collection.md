@@ -61,8 +61,16 @@ The runner writes:
 - `training_data/shards/*.jsonl`
 - `training_data/shards/*.jsonl.gz`
 - `training_data/shards/*.summary.json`
+- `training_data/shards/*.summary.md`
 
 Have your friend send back the `.jsonl.gz` file.
+
+If you want to play a local match against the MCTS bot instead of collecting
+data, run:
+
+```bash
+python play_vs_mcts.py --human-side p1
+```
 
 ## Tuning
 

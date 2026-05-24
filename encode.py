@@ -437,6 +437,15 @@ def _action_mask(state: Mapping[str, Any]) -> list[int]:
     mask = [0] * ACTION_SLOTS
     user = _mapping(state.get("user"))
     active = _mapping(user.get("active"))
+    reserve = [_mapping(pokemon) for pokemon in _sequence(user.get("reserve"), 5)]
+
+    reviving_slots = [
+        index for index, pokemon in enumerate(reserve) if pokemon.get("reviving")
+    ]
+    if reviving_slots:
+        for index in reviving_slots:
+            mask[4 + index] = 1
+        return mask
 
     for index, move in enumerate(_sequence(active.get("moves"), MOVE_SLOTS)):
         move = _mapping(move)
@@ -445,8 +454,7 @@ def _action_mask(state: Mapping[str, Any]) -> list[int]:
         if move.get("name") and not disabled and current_pp != 0:
             mask[index] = 1
 
-    for index, pokemon in enumerate(_sequence(user.get("reserve"), 5)):
-        pokemon = _mapping(pokemon)
+    for index, pokemon in enumerate(reserve):
         if not pokemon:
             continue
         hp = _float(pokemon.get("hp"))

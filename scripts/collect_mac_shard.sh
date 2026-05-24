@@ -32,11 +32,11 @@ then
   ./scripts/mac_setup.sh
 fi
 
-GAMES="${GAMES:-100}"
-MAX_TURNS="${MAX_TURNS:-300}"
-SEARCH_TIME_MS="${SEARCH_TIME_MS:-75}"
+GAMES="${GAMES:-10000}"
+MAX_TURNS="${MAX_TURNS:-100}"
+SEARCH_TIME_MS="${SEARCH_TIME_MS:-100}"
 HYPOTHESES="${HYPOTHESES:-4}"
-THREADS="${THREADS:-1}"
+THREADS="${THREADS:-6}"
 POKEMON_FORMAT="${POKEMON_FORMAT:-gen9randombattle}"
 GENERATION="${GENERATION:-gen9}"
 COLLECTOR_ID="${COLLECTOR_ID:-$(whoami)-$(hostname -s 2>/dev/null || hostname)}"
@@ -51,6 +51,7 @@ SAFE_COLLECTOR_ID="$(printf '%s' "${COLLECTOR_ID}" | tr -cs 'A-Za-z0-9_.-' '_')"
 SHARD_DIR="${SHARD_DIR:-training_data/shards}"
 OUTPUT_PATH="${OUTPUT_PATH:-${SHARD_DIR}/trajectory_mcts_${SAFE_COLLECTOR_ID}_${TIMESTAMP}_seed${SEED}.jsonl}"
 SUMMARY_PATH="${OUTPUT_PATH%.jsonl}.summary.json"
+SUMMARY_MD_PATH="${OUTPUT_PATH%.jsonl}.summary.md"
 ARCHIVE_PATH="${OUTPUT_PATH}.gz"
 
 mkdir -p "${SHARD_DIR}"
@@ -79,9 +80,13 @@ echo "output_path=${OUTPUT_PATH}"
 
 gzip -c "${OUTPUT_PATH}" > "${ARCHIVE_PATH}"
 
+"${VENV_PYTHON}" scripts/summarize_shard.py "${OUTPUT_PATH}" --output "${SUMMARY_MD_PATH}"
+
 echo
 echo "Shard complete."
 echo "Send this compressed file back:"
 echo "  ${ARCHIVE_PATH}"
 echo "Summary:"
 echo "  ${SUMMARY_PATH}"
+echo "Human-readable summary:"
+echo "  ${SUMMARY_MD_PATH}"

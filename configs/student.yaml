@@ -39,14 +39,14 @@ collection:
   generation: gen9
   seed: 1337
   positions: 5000
-  search_time_ms: 75
-  threads: 1
+  search_time_ms: 225
+  threads: 4
   hypotheses: 4
   backend: poke-engine
   retry_limit: 10
 
   showdex:
-    data_dir: showdex_cache
+    data_dir: showdex_cachei
     randoms_preset_path: showdex_cache/gen9randombattle.json
     randoms_stats_path: showdex_cache/gen9randombattle-stats.json
     prefer_stats: true

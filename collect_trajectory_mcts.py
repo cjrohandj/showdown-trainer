@@ -142,6 +142,7 @@ class PublicBattleTracker:
     seen: dict[str, dict[str, VisiblePokemon]] = field(
         default_factory=lambda: {"p1": {}, "p2": {}}
     )
+    last_used_moves: dict[str, str] = field(default_factory=dict)
     winner: str | None = None
 
     def apply_update(self, messages: Iterable[str]) -> None:
@@ -173,6 +174,8 @@ class PublicBattleTracker:
             elif tag == "move" and len(parts) >= 4:
                 player = _player_from_ident(parts[2])
                 move = normalize_id(parts[3])
+                if player and move:
+                    self.last_used_moves[player] = move
                 if player in self.active and move:
                     self.active[player].moves.add(move)
             elif tag == "faint" and len(parts) >= 3:
@@ -182,8 +185,9 @@ class PublicBattleTracker:
                     self.active[player].hp_fraction = 0.0
             elif tag in {"-damage", "-heal", "-sethp"} and len(parts) >= 4:
                 player = _player_from_ident(parts[2])
-                if player in self.active:
-                    _apply_condition(self.active[player], parts[3])
+                pokemon = self._pokemon_for_ident(player, parts[2])
+                if pokemon is not None:
+                    _apply_condition(pokemon, parts[3])
             elif tag == "-status" and len(parts) >= 4:
                 player = _player_from_ident(parts[2])
                 if player in self.active:
@@ -233,6 +237,17 @@ class PublicBattleTracker:
                 player = _player_from_ident(parts[2])
                 if player in self.active:
                     self.active[player].ability = normalize_id(parts[3])
+
+    def _pokemon_for_ident(self, player: str, ident: object) -> VisiblePokemon | None:
+        if player not in PLAYER_IDS:
+            return None
+        species = _species_from_ident(ident)
+        active = self.active.get(player)
+        if active is not None and (
+            not species or normalize_id(active.species) == species
+        ):
+            return active
+        return self.seen[player].get(species)
 
 
 class ShowdownBridge:
@@ -407,6 +422,7 @@ def _run_game(
     requests: dict[str, dict[str, Any]] = {}
     examples_written = 0
     ply = 0
+    awaiting_public_update = False
     showdown_seed = [rng.randrange(1, 0x10000) for _ in range(4)]
     bridge.send(
         {
@@ -423,6 +439,7 @@ def _run_game(
         event_type = event.get("type")
         if event_type == "update":
             tracker.apply_update(event.get("messages") or [])
+            awaiting_public_update = False
         elif event_type == "request":
             player = str(event.get("player"))
             request = _mapping(event.get("request"))
@@ -433,6 +450,9 @@ def _run_game(
             winner = _winner_to_player(data.get("winner")) or tracker.winner
             writer.write_result(battle_id=battle_id, winner=winner)
             return {"completed": True, "winner": winner, "examples_written": examples_written}
+
+        if awaiting_public_update:
+            continue
 
         if not all(player in requests for player in PLAYER_IDS):
             ready_players = _ready_players(requests)
@@ -453,7 +473,11 @@ def _run_game(
                 continue
             bridge.send({"type": "choice", "player": "p1", "choice": "team 123456"})
             bridge.send({"type": "choice", "player": "p2", "choice": "team 123456"})
+            awaiting_public_update = True
             requests.clear()
+            continue
+
+        if not _public_opponents_ready(tracker, ready_players):
             continue
 
         choices: dict[str, str] = {}
@@ -479,11 +503,27 @@ def _run_game(
                 observed_state=state,
                 actor_request=requests[player],
                 actor=player,
+                actor_last_used_move=tracker.last_used_moves.get(player, ""),
                 duration_ms=search_time_ms,
                 threads=threads,
                 hypotheses=hypotheses,
             )
             legal_policy = _filter_policy_to_mask(state, mcts_policy)
+            if not legal_policy:
+                request_type = _request_type(requests[player])
+                logger.warning(
+                    "Recovering empty legal policy: battle=%s ply=%s player=%s request_type=%s mask=%s raw_policy_keys=%s",
+                    battle_id,
+                    ply,
+                    player,
+                    request_type,
+                    state.get("action_mask"),
+                    sorted(mcts_policy),
+                )
+                if request_type == "move" and _active_moves_from_request(requests[player]):
+                    legal_policy = {"struggle": 1.0}
+                else:
+                    continue
             chosen_action = max(legal_policy, key=legal_policy.get)
             choices[player] = _decision_to_showdown_choice(
                 state,
@@ -515,6 +555,8 @@ def _run_game(
             if player in choices:
                 bridge.send({"type": "choice", "player": player, "choice": choices[player]})
                 requests.pop(player, None)
+        if choices:
+            awaiting_public_update = True
         for player in list(requests):
             if _request_type(requests[player]) == "wait":
                 requests.pop(player, None)
@@ -534,6 +576,7 @@ def _search_policy(
     observed_state: Mapping[str, Any],
     actor_request: Mapping[str, Any],
     actor: str,
+    actor_last_used_move: str,
     duration_ms: int,
     threads: int,
     hypotheses: int,
@@ -541,7 +584,12 @@ def _search_policy(
     results = []
     for index in range(max(1, hypotheses)):
         hypothesis = dict(observed_state)
-        hypothesis["user"] = _side_from_request(actor_request, observed=False, species_dex=species_dex)
+        hypothesis["user"] = _side_from_request(
+            actor_request,
+            observed=False,
+            species_dex=species_dex,
+            last_used_move=actor_last_used_move,
+        )
         hypothesis["opponent"] = _sample_opponent_side(
             rng,
             catalog,
@@ -589,7 +637,13 @@ def _observed_state_from_request(
         "trick_room": tracker.field_condition == "trickroom",
         "trick_room_turns_remaining": 0,
         "gravity": tracker.field_condition == "gravity",
-        "user": _side_from_request(request, observed=False, species_dex=species_dex),
+        "user": _side_from_request(
+            request,
+            observed=False,
+            species_dex=species_dex,
+            public_side_conditions=dict(tracker.side_conditions.get(actor, {})),
+            last_used_move=tracker.last_used_moves.get(actor, ""),
+        ),
         "opponent": _public_side(tracker, opponent, species_dex),
     }
     return state
@@ -600,6 +654,8 @@ def _side_from_request(
     *,
     observed: bool,
     species_dex: SpeciesDex,
+    public_side_conditions: Mapping[str, Any] | None = None,
+    last_used_move: str = "",
 ) -> dict[str, Any]:
     side = _mapping(request.get("side"))
     pokemon = [
@@ -608,6 +664,15 @@ def _side_from_request(
     ]
     active = next((entry for entry in pokemon if entry.get("active")), pokemon[0] if pokemon else {})
     reserve = [entry for entry in pokemon if entry is not active][:5]
+    revival_target = _is_revival_request_from_entries(
+        request,
+        active,
+        reserve,
+        last_used_move=last_used_move,
+    )
+    if revival_target:
+        for entry in reserve:
+            entry["reviving"] = bool(entry.get("fainted"))
     active_moves = _active_moves_from_request(request)
     if active_moves:
         active["moves"] = active_moves
@@ -625,7 +690,7 @@ def _side_from_request(
         "shed_tailing": False,
         "wish": [0, 0],
         "future_sight": [0, ""],
-        "side_conditions": {},
+        "side_conditions": dict(public_side_conditions or {}),
         "last_selected_move": {"pokemon_name": "", "move": "", "turn": 0},
         "last_used_move": {"pokemon_name": "", "move": "", "turn": 0},
         "has_team_dict": True,
@@ -747,8 +812,8 @@ def _pokemon_from_request(
         "removed_item": "",
         "item_inferred": observed,
         "nature": "hardy",
-        "evs": [int(DEFAULT_RANDOMS_EVS[stat]) for stat in STAT_ORDER],
-        "ivs": [int(DEFAULT_IVS[stat]) for stat in STAT_ORDER],
+        "evs": _stat_vector_from_request(entry.get("evs"), DEFAULT_RANDOMS_EVS, default=0),
+        "ivs": _stat_vector_from_request(entry.get("ivs"), DEFAULT_IVS, default=31),
         "base_stats": base_stats,
         "stats": stats,
         "boosts": {},
@@ -900,12 +965,39 @@ def _active_moves_from_request(request: Mapping[str, Any]) -> list[dict[str, Any
     return moves
 
 
+def _stat_vector_from_request(
+    values: object,
+    fallback: Mapping[str, int],
+    *,
+    default: int,
+) -> list[int]:
+    source = _mapping(values)
+    if source:
+        return [
+            _int(source.get(SHOWDOWN_STAT_KEYS[stat], source.get(stat)), int(fallback.get(stat, default)))
+            for stat in STAT_ORDER
+        ]
+
+    sequence = _sequence(values, len(STAT_ORDER))
+    if any(item is not None for item in sequence):
+        return [
+            _int(item, int(fallback.get(stat, default)))
+            for stat, item in zip(STAT_ORDER, sequence, strict=True)
+        ]
+
+    return [int(fallback.get(stat, default)) for stat in STAT_ORDER]
+
+
 def _action_mask_from_request(request: Mapping[str, Any], state: Mapping[str, Any]) -> list[int]:
     mask = [0] * ACTION_SLOTS
     request_type = _request_type(request)
     user = _mapping(state.get("user"))
     active_context = _mapping(_sequence(request.get("active"), 1)[0])
     force_switch = request_type == "switch"
+    revival_target = any(
+        bool(_mapping(pokemon).get("reviving"))
+        for pokemon in _sequence(user.get("reserve"), 5)[:5]
+    )
     trapped = bool(active_context.get("trapped"))
 
     if not force_switch:
@@ -920,8 +1012,20 @@ def _action_mask_from_request(request: Mapping[str, Any], state: Mapping[str, An
     if not trapped or force_switch:
         for index, pokemon in enumerate(_sequence(user.get("reserve"), 5)[:5]):
             pokemon = _mapping(pokemon)
-            if pokemon and pokemon.get("alive", True) and not pokemon.get("fainted"):
+            if not pokemon:
+                continue
+            if revival_target:
+                if pokemon.get("fainted"):
+                    mask[4 + index] = 1
+            elif pokemon.get("alive", True) and not pokemon.get("fainted"):
                 mask[4 + index] = 1
+
+    if request_type == "move" and not any(mask):
+        active_moves = _active_moves_from_request(request)
+        if active_moves:
+            # Use the first move slot as a Struggle surrogate when Showdown would
+            # force Struggle because no other move/switch option is available.
+            mask[0] = 1
 
     return mask
 
@@ -1065,6 +1169,22 @@ def _request_type(request: Mapping[str, Any]) -> str:
     return "move"
 
 
+def _is_revival_request_from_entries(
+    request: Mapping[str, Any],
+    active: Mapping[str, Any],
+    reserve: Sequence[Mapping[str, Any]],
+    *,
+    last_used_move: str = "",
+) -> bool:
+    if not request.get("forceSwitch"):
+        return False
+    if normalize_id(last_used_move) != "revivalblessing":
+        return False
+    if not active or active.get("fainted") or not active.get("alive", True):
+        return False
+    return any(bool(pokemon.get("fainted")) for pokemon in reserve if pokemon)
+
+
 def _ready_players(requests: Mapping[str, Mapping[str, Any]]) -> list[str]:
     actionable = [
         player
@@ -1076,6 +1196,18 @@ def _ready_players(requests: Mapping[str, Mapping[str, Any]]) -> list[str]:
     if len(actionable) == 1 and _request_type(requests[actionable[0]]) == "switch":
         return actionable
     return []
+
+
+def _public_opponents_ready(
+    tracker: PublicBattleTracker,
+    players: Sequence[str],
+) -> bool:
+    for player in players:
+        opponent = _opponent(player)
+        active = tracker.active.get(opponent)
+        if active is None or not active.species:
+            return False
+    return True
 
 
 def _move_dict(move: object) -> dict[str, Any]:
@@ -1205,6 +1337,13 @@ def _default_stats() -> dict[str, int]:
 def _player_from_ident(ident: object) -> str:
     text = str(ident or "")
     return text[:2] if text[:2] in PLAYER_IDS else ""
+
+
+def _species_from_ident(ident: object) -> str:
+    text = str(ident or "")
+    if ":" not in text:
+        return ""
+    return normalize_id(text.split(":", 1)[1].strip())
 
 
 def _player_from_side(side: object) -> str:
