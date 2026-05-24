@@ -133,7 +133,7 @@ class PokeEngineBackend:
             special_attack=int(stats.get("special-attack") or 100),
             special_defense=int(stats.get("special-defense") or 100),
             speed=int(stats.get("speed") or 100),
-            status=normalize_id(pokemon.get("status")) or "none",
+            status=_status(pokemon.get("status")),
             rest_turns=int(pokemon.get("rest_turns") or 0),
             sleep_turns=int(pokemon.get("sleep_turns") or 0),
             weight_kg=float(pokemon.get("weight_kg") or 0.0),
@@ -414,6 +414,20 @@ def _types(pokemon: Mapping[str, Any]) -> tuple[str, str]:
     return ((values + ["typeless", "typeless"])[:2][0], (values + ["typeless", "typeless"])[:2][1])
 
 
+def _status(value: object) -> str:
+    normalized = normalize_id(value) or "none"
+    return {
+        "brn": "burn",
+        "frz": "freeze",
+        "fnt": "none",
+        "fainted": "none",
+        "par": "paralyze",
+        "psn": "poison",
+        "slp": "sleep",
+        "tox": "toxic",
+    }.get(normalized, normalized)
+
+
 def _ev_tuple(evs: Mapping[str, Any]) -> tuple[int, int, int, int, int, int]:
     merged = dict(DEFAULT_RANDOMS_EVS)
     for key, value in evs.items():
@@ -455,8 +469,11 @@ def _weather(value: object) -> str:
         "sandstorm": "sand",
         "hail": "hail",
         "snow": "snow",
+        "snowscape": "snow",
         "desolateland": "harshsun",
         "primordialsea": "heavyrain",
+        "deltastream": "none",
+        "strongwinds": "none",
     }.get(value, value or "none")
 
 

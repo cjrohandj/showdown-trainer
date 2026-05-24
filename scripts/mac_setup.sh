@@ -94,6 +94,25 @@ PY
   fi
 }
 
+ensure_node() {
+  echo "==> Checking Node.js and npm"
+  if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+    node --version
+    npm --version
+    return 0
+  fi
+
+  if command -v brew >/dev/null 2>&1; then
+    echo "==> Installing Node.js with Homebrew"
+    brew install node
+    return 0
+  fi
+
+  echo "Node.js and npm are required for the full-game Pokemon Showdown simulator." >&2
+  echo "Install Node.js from https://nodejs.org/ or Homebrew, then rerun ./scripts/collect_mac_shard.sh." >&2
+  exit 1
+}
+
 echo "==> Checking Python"
 SELECTED_PYTHON="$(find_compatible_python || true)"
 
@@ -133,6 +152,14 @@ echo "==> Creating collector virtual environment"
 echo "==> Installing collector dependencies"
 "${VENV_DIR}/bin/python" -m pip install --upgrade pip
 "${VENV_DIR}/bin/python" -m pip install -r requirements-collector.txt
+
+ensure_node
+
+echo "==> Installing Pokemon Showdown simulator"
+npm install
+
+echo "==> Exporting Pokemon Showdown species metadata"
+node scripts/export_showdown_dex.js showdex_cache/showdown_species.json
 
 echo "==> Downloading Showdex/pkmn random battle data"
 mkdir -p showdex_cache
@@ -205,11 +232,12 @@ for file_info in FILES:
     )
 PY
 
-echo "==> Verifying poke-engine collector with a tiny smoke run"
-"${VENV_DIR}/bin/python" collect_offline_mcts.py \
+echo "==> Verifying Showdown trajectory collector with a tiny smoke run"
+"${VENV_DIR}/bin/python" collect_trajectory_mcts.py \
   --config configs/student.yaml \
-  --output-path training_data/smoke_mac_setup.jsonl \
-  --positions 2 \
+  --output-path training_data/smoke_trajectory_mac_setup.jsonl \
+  --games 1 \
+  --max-turns 5 \
   --search-time-ms 10 \
   --hypotheses 1 \
   --threads 1

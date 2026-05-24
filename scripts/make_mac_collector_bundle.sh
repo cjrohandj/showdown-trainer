@@ -13,11 +13,13 @@ rm -rf "${BUILD_DIR}"
 mkdir -p "${BUILD_DIR}/configs" "${BUILD_DIR}/docs" "${BUILD_DIR}/scripts"
 
 cp \
+  collect_trajectory_mcts.py \
   collect_offline_mcts.py \
   dataset.py \
   encode.py \
   map.py \
   offline_mcts.py \
+  package.json \
   requirements-collector.txt \
   showdex_distributions.py \
   trainer_config.py \
@@ -27,8 +29,14 @@ cp configs/student.yaml "${BUILD_DIR}/configs/student.yaml"
 cp docs/mac_data_collection.md "${BUILD_DIR}/docs/mac_data_collection.md"
 cp scripts/mac_setup.sh "${BUILD_DIR}/scripts/mac_setup.sh"
 cp scripts/collect_mac_shard.sh "${BUILD_DIR}/scripts/collect_mac_shard.sh"
+cp scripts/export_showdown_dex.js "${BUILD_DIR}/scripts/export_showdown_dex.js"
+cp scripts/showdown_bridge.js "${BUILD_DIR}/scripts/showdown_bridge.js"
 
-chmod +x "${BUILD_DIR}/scripts/mac_setup.sh" "${BUILD_DIR}/scripts/collect_mac_shard.sh"
+chmod +x \
+  "${BUILD_DIR}/scripts/mac_setup.sh" \
+  "${BUILD_DIR}/scripts/collect_mac_shard.sh" \
+  "${BUILD_DIR}/scripts/export_showdown_dex.js" \
+  "${BUILD_DIR}/scripts/showdown_bridge.js"
 
 LC_ALL=C tar -C "${DIST_DIR}" -czf "${ARCHIVE_PATH}" "${BUNDLE_NAME}"
 

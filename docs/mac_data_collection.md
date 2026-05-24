@@ -1,8 +1,8 @@
 # Mac Data Collection Setup
 
-This is the lightest way to run only the offline MCTS collector on other Macs.
-It does not install PyTorch or train the model. Each machine writes independent
-JSONL shards that can be sent back and merged later.
+This is the lightest way to run the full-game Showdown + MCTS trajectory
+collector on other Macs. It does not install PyTorch or train the model. Each
+machine writes independent JSONL shards that can be sent back and merged later.
 
 ## Make A Friend-Friendly Bundle
 
@@ -24,12 +24,16 @@ cd showdown-trainer-mac-collector
 
 - macOS
 - Python 3.10 through 3.13
+- Node.js and npm
 - Internet access for first run
-- A checkout or zip of this repository
 
 If they do not have Python 3.10-3.13, install Python 3.13 from
 Homebrew or the official Python.org macOS package. `poke-engine` does not
 currently build cleanly on Python 3.14.
+
+If they do not have Node.js/npm, install Node.js from Homebrew or
+https://nodejs.org/. The setup script uses npm to install the local
+`pokemon-showdown` simulator package.
 
 ## Run A Data Shard
 
@@ -40,14 +44,16 @@ From the repo folder:
 ```
 
 On first run, the script installs Python 3.13 if needed, creates
-`.venv-collector`, installs only the collector dependencies, downloads the
-Showdex/pkmn random battle data into `showdex_cache/`, runs a two-position smoke
+`.venv-collector`, installs the Python collector dependencies, installs the
+Node Pokemon Showdown simulator dependency, exports Pokemon Showdown species
+metadata into `showdex_cache/showdown_species.json`, downloads the Showdex/pkmn
+random battle data into `showdex_cache/`, runs a tiny full-game trajectory smoke
 test, and then starts the real shard.
 
-The default shard is 5,000 positions. Useful longer run:
+The default shard is 100 full games. Useful longer run:
 
 ```bash
-POSITIONS=50000 SEARCH_TIME_MS=75 HYPOTHESES=4 THREADS=1 ./scripts/collect_mac_shard.sh
+GAMES=1000 SEARCH_TIME_MS=75 HYPOTHESES=4 THREADS=1 ./scripts/collect_mac_shard.sh
 ```
 
 The runner writes:
@@ -65,13 +71,14 @@ different `COLLECTOR_ID` values can give better throughput than one run with a
 large thread count:
 
 ```bash
-COLLECTOR_ID=alice-mac-a POSITIONS=25000 THREADS=1 ./scripts/collect_mac_shard.sh
-COLLECTOR_ID=alice-mac-b POSITIONS=25000 THREADS=1 ./scripts/collect_mac_shard.sh
+COLLECTOR_ID=alice-mac-a GAMES=500 THREADS=1 ./scripts/collect_mac_shard.sh
+COLLECTOR_ID=alice-mac-b GAMES=500 THREADS=1 ./scripts/collect_mac_shard.sh
 ```
 
 Main knobs:
 
-- `POSITIONS`: more examples and more runtime
+- `GAMES`: more full games and more runtime
+- `MAX_TURNS`: safety cutoff for unusually long games
 - `SEARCH_TIME_MS`: stronger MCTS targets and more runtime
 - `HYPOTHESES`: better hidden-information averaging and more runtime
 - `THREADS`: threads inside each poke-engine search

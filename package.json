@@ -1,0 +1,12 @@
+{
+  "name": "showdown-trainer",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "check:showdown-bridge": "node --check scripts/showdown_bridge.js",
+    "export:showdown-dex": "node scripts/export_showdown_dex.js"
+  },
+  "dependencies": {
+    "pokemon-showdown": "0.11.10"
+  }
+}
