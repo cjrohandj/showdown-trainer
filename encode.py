@@ -91,21 +91,6 @@ def encode_json_state(
     return encode_battle_state(json.loads(json_state), config=config)
 
 
-def encode_battle_object(
-    battle: object,
-    *,
-    config: EncoderConfig | None = None,
-) -> EncodedState:
-    """Serialize and encode a live Foul Play Battle-like object."""
-
-    from serialize import serialize_battle_state
-
-    return encode_battle_state(
-        serialize_battle_state(battle, include_action_mask=True),
-        config=config,
-    )
-
-
 def encode_battle_state(
     state: Mapping[str, Any],
     *,

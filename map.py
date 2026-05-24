@@ -238,8 +238,8 @@ def mcts_policy_to_vector(
 def aggregate_mcts_policy(mcts_results: Iterable[object]) -> dict[str, float]:
     """Aggregate poke-engine MCTS results into a decision-probability dict.
 
-    Accepts either raw MctsResult-like objects or tuples shaped like Foul Play's
-    ``(mcts_result, sample_chance, index)`` entries.
+    Accepts either raw MctsResult-like objects or
+    ``(mcts_result, sample_chance, index)`` hypothesis entries.
     """
 
     policy: dict[str, float] = {}

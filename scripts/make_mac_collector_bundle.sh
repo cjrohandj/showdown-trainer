@@ -19,7 +19,6 @@ cp \
   map.py \
   offline_mcts.py \
   requirements-collector.txt \
-  serialize.py \
   showdex_distributions.py \
   trainer_config.py \
   "${BUILD_DIR}/"

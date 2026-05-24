@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import math
 import tempfile
 from pathlib import Path
@@ -16,155 +15,148 @@ from map import (
     legal_action_mask,
     mcts_policy_to_vector,
 )
-from serialize import battle_state_json, serialize_battle_state
 from collect_offline_mcts import run_collection as run_offline_collection
 
 
-def build_fake_battle():
-    active = NS(
-        name="greattusk",
-        base_name="greattusk",
-        nickname="Tusky",
-        index=1,
-        level=100,
-        hp=210,
-        max_hp=300,
-        status=None,
-        status_at_switch_in=None,
-        hp_at_switch_in=300,
-        types=["ground", "fighting"],
-        ability="protosynthesis",
-        original_ability=None,
-        item="boosterenergy",
-        removed_item=None,
-        item_inferred=False,
-        nature="jolly",
-        evs=(0, 252, 0, 0, 4, 252),
-        base_stats={
+def build_fake_state():
+    return {
+        "schema_version": 1,
+        "battle_tag": "offline-sanity-1",
+        "pokemon_format": "gen9randombattle",
+        "generation": "gen9",
+        "battle_type": "OFFLINE_SHOWDEX_MCTS",
+        "turn": 4,
+        "started": True,
+        "team_preview": False,
+        "force_switch": False,
+        "wait": False,
+        "weather": "sunnyday",
+        "weather_turns_remaining": 3,
+        "field": "none",
+        "field_turns_remaining": 0,
+        "trick_room": False,
+        "trick_room_turns_remaining": 0,
+        "gravity": False,
+        "user": {
+            "name": "p1",
+            "account_name": "bot",
+            "active": {
+                "name": "greattusk",
+                "base_name": "greattusk",
+                "nickname": "Tusky",
+                "index": 1,
+                "level": 100,
+                "alive": True,
+                "fainted": False,
+                "reviving": False,
+                "hp": 210,
+                "max_hp": 300,
+                "hp_fraction": 0.7,
+                "status": "",
+                "status_at_switch_in": "",
+                "hp_at_switch_in": 300,
+                "types": ["ground", "fighting"],
+                "ability": "protosynthesis",
+                "original_ability": "",
+                "item": "boosterenergy",
+                "removed_item": "",
+                "item_inferred": False,
+                "nature": "jolly",
+                "evs": [0, 252, 0, 0, 4, 252],
+                "base_stats": {
             "hp": 115,
             "attack": 131,
             "defense": 131,
             "special-attack": 53,
             "special-defense": 53,
             "speed": 87,
-        },
-        stats={
+                },
+                "stats": {
             "attack": 359,
             "defense": 299,
             "special-attack": 127,
             "special-defense": 142,
             "speed": 300,
+                },
+                "boosts": {"attack": 1},
+                "speed_range": {"min": 0, "max": None, "unbounded_max": True},
+                "moves": [
+                    {"name": "earthquake", "current_pp": 16, "max_pp": 16, "disabled": False, "can_z": False},
+                    {"name": "protect", "current_pp": 16, "max_pp": 16, "disabled": False, "can_z": False},
+                    {"name": "rapidspin", "current_pp": 32, "max_pp": 64, "disabled": True, "can_z": False},
+                ],
+                "moves_used_since_switch_in": ["rapidspin"],
+                "volatile_statuses": ["protosynthesisatk"],
+                "volatile_status_durations": {},
+                "rest_turns": 0,
+                "sleep_turns": 0,
+                "substitute_hit": False,
+                "terastallized": False,
+                "tera_type": "water",
+                "can_terastallize": True,
+                "can_mega_evo": False,
+                "can_ultra_burst": False,
+                "can_dynamax": False,
+                "is_mega": False,
+                "mega_name": "",
+                "knocked_off": False,
+                "unknown_forme": False,
+                "forme_changed": False,
+                "zoroark_disguised_as": "",
+                "can_have_choice_item": True,
+                "impossible_items": ["choicescarf"],
+                "impossible_abilities": [],
+                "hidden_power_possibilities": [],
+            },
+            "reserve": [
+                {
+                    "name": "dragapult",
+                    "base_name": "dragapult",
+                    "hp": 100,
+                    "max_hp": 100,
+                    "alive": True,
+                    "fainted": False,
+                    "moves": [],
+                    "types": ["dragon", "ghost"],
+                },
+                {
+                    "name": "corviknight",
+                    "base_name": "corviknight",
+                    "hp": 0,
+                    "max_hp": 100,
+                    "alive": False,
+                    "fainted": True,
+                    "moves": [],
+                    "types": ["flying", "steel"],
+                },
+            ],
+            "trapped": False,
+            "baton_passing": False,
+            "shed_tailing": False,
+            "wish": [0, 0],
+            "future_sight": [0, ""],
+            "side_conditions": {"stealthrock": 1},
+            "last_selected_move": {"pokemon_name": "greattusk", "move": "earthquake", "turn": 3},
+            "last_used_move": {"pokemon_name": "greattusk", "move": "protect", "turn": 2},
+            "has_team_dict": False,
         },
-        boosts={"attack": 1},
-        speed_range=NS(min=0, max=float("inf")),
-        moves=[
-            NS(name="earthquake", current_pp=16, max_pp=16, disabled=False, can_z=False),
-            NS(name="protect", current_pp=16, max_pp=16, disabled=False, can_z=False),
-            NS(name="rapidspin", current_pp=32, max_pp=64, disabled=True, can_z=False),
-        ],
-        moves_used_since_switch_in={"rapidspin"},
-        volatile_statuses=["protosynthesisatk"],
-        volatile_status_durations={},
-        rest_turns=0,
-        sleep_turns=0,
-        substitute_hit=False,
-        terastallized=False,
-        tera_type="water",
-        can_terastallize=True,
-        can_mega_evo=False,
-        can_ultra_burst=False,
-        can_dynamax=False,
-        is_mega=False,
-        mega_name=None,
-        knocked_off=False,
-        unknown_forme=False,
-        forme_changed=False,
-        zoroark_disguised_as=None,
-        can_have_choice_item=True,
-        impossible_items={"choicescarf"},
-        impossible_abilities=set(),
-        hidden_power_possibilities=set(),
-        fainted=False,
-        reviving=False,
-    )
-
-    reserve = [
-        NS(
-            name="dragapult",
-            base_name="dragapult",
-            hp=100,
-            max_hp=100,
-            alive=True,
-            fainted=False,
-            moves=[],
-            types=["dragon", "ghost"],
-        ),
-        NS(
-            name="corviknight",
-            base_name="corviknight",
-            hp=0,
-            max_hp=100,
-            alive=False,
-            fainted=True,
-            moves=[],
-            types=["flying", "steel"],
-        ),
-    ]
-
-    user = NS(
-        active=active,
-        reserve=reserve,
-        name="p1",
-        account_name="bot",
-        trapped=False,
-        baton_passing=False,
-        shed_tailing=False,
-        wish=(0, 0),
-        future_sight=(0, ""),
-        side_conditions={"stealthrock": 1},
-        last_selected_move=NS(pokemon_name="greattusk", move="earthquake", turn=3),
-        last_used_move=NS(pokemon_name="greattusk", move="protect", turn=2),
-        team_dict=None,
-    )
-    opponent = NS(
-        active=NS(
-            name="kingambit",
-            base_name="kingambit",
-            hp=150,
-            max_hp=300,
-            types=["dark", "steel"],
-            moves=[NS(name="kowtowcleave", current_pp=16, max_pp=16)],
-        ),
-        reserve=[],
-        name="p2",
-        account_name="opponent",
-        side_conditions={},
-    )
-
-    return NS(
-        battle_tag="battle-gen9ou-1",
-        pokemon_format="gen9ou",
-        generation="gen9",
-        battle_type="STANDARD_BATTLE",
-        turn=4,
-        started=True,
-        team_preview=False,
-        rqid=7,
-        force_switch=False,
-        wait=False,
-        time_remaining=120,
-        weather="sunnyday",
-        weather_turns_remaining=3,
-        weather_source="torkoal",
-        field=None,
-        field_turns_remaining=0,
-        trick_room=False,
-        trick_room_turns_remaining=0,
-        gravity=False,
-        user=user,
-        opponent=opponent,
-        request_json=None,
-    )
+        "opponent": {
+            "name": "p2",
+            "account_name": "opponent",
+            "active": {
+                "name": "kingambit",
+                "base_name": "kingambit",
+                "hp": 150,
+                "max_hp": 300,
+                "hp_fraction": 0.5,
+                "types": ["dark", "steel"],
+                "moves": [{"name": "kowtowcleave", "current_pp": 16, "max_pp": 16}],
+            },
+            "reserve": [],
+            "side_conditions": {},
+        },
+        "action_mask": [1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0],
+    }
 
 
 def check_map_component(battle):
@@ -218,14 +210,12 @@ def check_map_component(battle):
     print("map: ok")
 
 
-def check_serialize_component(battle):
-    state = serialize_battle_state(battle, include_action_mask=True)
+def check_state_component(state):
     assert state["user"]["active"]["name"] == "greattusk"
     assert state["user"]["active"]["hp_fraction"] == 0.7
     assert state["action_mask"] == [1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0]
-    json.dumps(state, allow_nan=False)
-    assert battle_state_json(battle)
-    print("serialize: ok")
+    assert legal_action_mask(state) == state["action_mask"]
+    print("state: ok")
     return state
 
 
@@ -389,9 +379,9 @@ def check_train_component(state):
 
 
 def main():
-    battle = build_fake_battle()
-    check_map_component(battle)
-    state = check_serialize_component(battle)
+    state = build_fake_state()
+    check_map_component(state)
+    state = check_state_component(state)
     check_encode_component(state)
     check_dataset_component(state)
     check_offline_mcts_component()

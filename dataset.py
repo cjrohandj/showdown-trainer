@@ -17,7 +17,6 @@ from map import (
     decision_to_action_slot,
     mcts_policy_to_vector,
 )
-from serialize import serialize_battle_state
 
 
 DATASET_SCHEMA_VERSION = 1
@@ -47,7 +46,6 @@ def utc_now_iso() -> str:
 
 def build_decision_record(
     *,
-    battle: object | None = None,
     state: Mapping[str, Any] | None = None,
     search_result: object | Mapping[str, Any] | None = None,
     mcts_policy: Mapping[str, float] | None = None,
@@ -62,15 +60,12 @@ def build_decision_record(
 ) -> DecisionRecord:
     """Build a JSON-ready decision training record.
 
-    Pass either a live battle-like object or an already serialized ``state``.
-    Pass either ``search_result`` with ``chosen_action``/``mcts_policy`` fields,
-    or pass those two values explicitly.
+    Pass a serialized offline ``state`` and either ``search_result`` with
+    ``chosen_action``/``mcts_policy`` fields, or pass those two values explicitly.
     """
 
     if state is None:
-        if battle is None:
-            raise ValueError("build_decision_record requires battle or state")
-        state = serialize_battle_state(battle, include_action_mask=True)
+        raise ValueError("build_decision_record requires state")
     else:
         state = dict(state)
 
@@ -184,7 +179,6 @@ class TrainingDatasetWriter:
     def write_decision(
         self,
         *,
-        battle: object | None = None,
         state: Mapping[str, Any] | None = None,
         search_result: object | Mapping[str, Any] | None = None,
         mcts_policy: Mapping[str, float] | None = None,
@@ -195,7 +189,6 @@ class TrainingDatasetWriter:
         metadata: Mapping[str, Any] | None = None,
     ) -> DecisionRecord:
         record = build_decision_record(
-            battle=battle,
             state=state,
             search_result=search_result,
             mcts_policy=mcts_policy,

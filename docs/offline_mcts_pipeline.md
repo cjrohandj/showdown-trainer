@@ -1,30 +1,8 @@
 # Offline Showdex-Guided MCTS Training Pipeline
 
-## Previous Foul Play Integration
+## Offline Pipeline
 
-The original pipeline collected supervised policy targets from live Foul Play
-battles:
-
-- `mcts_policy_training.ipynb` cloned `pmariglia/foul-play`, installed it, asked
-  for Pokemon Showdown credentials, and called `collect_foul_play.py`.
-- `collect_foul_play.py` monkey-patched Foul Play's `fp.run_battle.async_pick_move`
-  so every live decision copied the battle, ran Foul Play's search, and wrote a
-  JSONL decision row.
-- Foul Play owned the websocket login, ladder/challenge loop, team upload,
-  battle parsing, hidden-information preparation, and conversion from its battle
-  object into a `poke-engine` state.
-- The repo only owned the downstream pieces: serializing the copied battle,
-  converting MCTS visits into the fixed 13-slot action target, writing JSONL,
-  and training `PolicyMLP`.
-
-That meant training data collection was not offline-capable. It depended on a
-separate Foul Play checkout, a live Pokemon Showdown websocket, an account, and
-the state of online battles. Reproducibility was also tied to whatever opponents
-and ladder positions the account encountered.
-
-## New Offline Pipeline
-
-The replacement path is:
+The collection path is:
 
 1. `collect_offline_mcts.py` loads local Showdex-compatible pkmn data from
    `showdex_cache/`.
@@ -51,9 +29,9 @@ poke-engine MCTS over Showdex/pkmn hidden-variable samples.
 
 Once `showdex_cache/gen9randombattle.json` and
 `showdex_cache/gen9randombattle-stats.json` exist, collection does not require
-Pokemon Showdown, Foul Play, browser extension runtime state, or network access.
-The notebook downloads those files once from the same pkmn data paths Showdex
-uses, then collection reads from disk.
+Pokemon Showdown, browser extension runtime state, or network access. The
+notebook downloads those files once from the same pkmn data paths Showdex uses,
+then collection reads from disk.
 
 For a fully air-gapped run:
 
