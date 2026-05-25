@@ -326,8 +326,10 @@ def main() -> None:
 def run_collection(settings: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     showdex = _mapping(settings.get("showdex"))
     mcts = _mapping(settings.get("mcts"))
-    seed = _int(settings.get("seed", mcts.get("seed")), 1337)
+    seed = _resolve_run_seed(settings, args, mcts)
+    settings["seed"] = seed
     rng = random.Random(seed)
+    logger.info("Using run seed %s", seed)
     pokemon_format = str(settings.get("pokemon_format") or showdex.get("pokemon_format") or "gen9randombattle")
     generation = str(settings.get("generation") or _generation_from_format(pokemon_format))
     search_time_ms = _int(settings.get("search_time_ms", mcts.get("search_time_ms")), 75)
@@ -423,7 +425,8 @@ def _run_game(
     examples_written = 0
     ply = 0
     awaiting_public_update = False
-    showdown_seed = [rng.randrange(1, 0x10000) for _ in range(4)]
+    showdown_rng = random.SystemRandom()
+    showdown_seed = [showdown_rng.randrange(1, 0x10000) for _ in range(4)]
     bridge.send(
         {
             "type": "start",
@@ -1157,6 +1160,22 @@ def _apply_overrides(settings: dict[str, Any], args: argparse.Namespace) -> None
         value = getattr(args, key, None)
         if value is not None:
             settings[key] = value
+
+
+def _resolve_run_seed(
+    settings: Mapping[str, Any],
+    args: argparse.Namespace,
+    mcts: Mapping[str, Any],
+) -> int:
+    if args.seed is not None:
+        return int(args.seed)
+    value = settings.get("seed")
+    if value is not None and value != 1337:
+        return _int(value, 1337)
+    value = mcts.get("seed")
+    if value is not None and value != 1337:
+        return _int(value, 1337)
+    return random.SystemRandom().randrange(1, 2_147_483_647)
 
 
 def _request_type(request: Mapping[str, Any]) -> str:
