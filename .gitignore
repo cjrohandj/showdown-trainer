@@ -6,4 +6,5 @@ node_modules/
 checkpoints/
 showdex_cache/
 training_data/
+downloaded-runs/
 dist/

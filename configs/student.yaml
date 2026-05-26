@@ -46,7 +46,7 @@ collection:
   retry_limit: 10
 
   showdex:
-    data_dir: showdex_cachei
+    data_dir: showdex_cache
     randoms_preset_path: showdex_cache/gen9randombattle.json
     randoms_stats_path: showdex_cache/gen9randombattle-stats.json
     prefer_stats: true

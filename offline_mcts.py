@@ -95,6 +95,7 @@ class PokeEngineBackend:
         pokemon = [
             self._pokemon(active, can_terastallize=bool(active.get("can_terastallize", True)))
         ] + [self._pokemon(slot, can_terastallize=False) for slot in reserve if slot]
+        boosts = _mapping(active.get("boosts"))
         return self.Side(
             pokemon=pokemon,
             active_index="0",
@@ -104,6 +105,13 @@ class PokeEngineBackend:
             side_conditions=self._side_conditions(_mapping(side.get("side_conditions"))),
             wish=_wish(side.get("wish")),
             future_sight=_future_sight(side.get("future_sight")),
+            attack_boost=int(boosts.get("attack") or 0),
+            defense_boost=int(boosts.get("defense") or 0),
+            special_attack_boost=int(boosts.get("special-attack") or 0),
+            special_defense_boost=int(boosts.get("special-defense") or 0),
+            speed_boost=int(boosts.get("speed") or 0),
+            accuracy_boost=int(boosts.get("accuracy") or 0),
+            evasion_boost=int(boosts.get("evasion") or 0),
             last_used_move=_last_used_move(side.get("last_used_move")),
         )
 

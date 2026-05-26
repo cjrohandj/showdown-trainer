@@ -646,6 +646,7 @@ def _observed_state_from_request(
             species_dex=species_dex,
             public_side_conditions=dict(tracker.side_conditions.get(actor, {})),
             last_used_move=tracker.last_used_moves.get(actor, ""),
+            public_active=tracker.active.get(actor),
         ),
         "opponent": _public_side(tracker, opponent, species_dex),
     }
@@ -659,6 +660,7 @@ def _side_from_request(
     species_dex: SpeciesDex,
     public_side_conditions: Mapping[str, Any] | None = None,
     last_used_move: str = "",
+    public_active: VisiblePokemon | None = None,
 ) -> dict[str, Any]:
     side = _mapping(request.get("side"))
     pokemon = [
@@ -666,6 +668,8 @@ def _side_from_request(
         for entry in _sequence(side.get("pokemon"))
     ]
     active = next((entry for entry in pokemon if entry.get("active")), pokemon[0] if pokemon else {})
+    if active and public_active and _species_match(active.get("name"), public_active.species):
+        _merge_public_pokemon(active, _pokemon_from_visible(public_active, species_dex))
     reserve = [entry for entry in pokemon if entry is not active][:5]
     revival_target = _is_revival_request_from_entries(
         request,
@@ -1397,6 +1401,10 @@ def _generation_from_format(pokemon_format: str) -> str:
 
 
 def _base_species_id(species_id: str) -> str:
+    special_prefixes = ("arceus", "silvally")
+    for prefix in special_prefixes:
+        if species_id.startswith(prefix):
+            return prefix
     suffixes = (
         "mega",
         "megax",
@@ -1412,6 +1420,16 @@ def _base_species_id(species_id: str) -> str:
         if species_id.endswith(suffix) and len(species_id) > len(suffix):
             return species_id[: -len(suffix)]
     return species_id
+
+
+def _species_match(left: object, right: object) -> bool:
+    left_id = normalize_id(left)
+    right_id = normalize_id(right)
+    if not left_id or not right_id:
+        return False
+    if left_id == right_id:
+        return True
+    return _base_species_id(left_id) == _base_species_id(right_id)
 
 
 def _mapping(value: object) -> dict[str, Any]:
